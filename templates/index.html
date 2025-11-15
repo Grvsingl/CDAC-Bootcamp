@@ -1,0 +1,1502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamic Firewall Dashboard</title>
+    <script src="https://cdn.socket.io/4.7.3/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.3.0/build/global/luxon.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.min.js"></script>
+    <style>
+        :root {
+            --primary: #2c3e50;
+            --secondary: #3498db;
+            --success: #2ecc71;
+            --danger: #e74c3c;
+            --warning: #f39c12;
+            --info: #1abc9c;
+            --light: #ecf0f1;
+            --dark: #34495e;
+        }
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f7f9;
+            color: #333;
+            line-height: 1.6;
+        }
+        
+        .header {
+            background: var(--primary);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 5px;
+        }
+        
+        .header p {
+            opacity: 0.9;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        
+        .btn-primary { background: var(--secondary); color: white; }
+        .btn-success { background: var(--success); color: white; }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-warning { background: var(--warning); color: white; }
+        
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .card h2 {
+            margin-bottom: 15px;
+            color: var(--primary);
+            border-bottom: 2px solid var(--light);
+            padding-bottom: 10px;
+        }
+        
+        .full-width {
+            grid-column: 1 / -1;
+        }
+        
+        .half-width {
+            grid-column: span 1;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 10px;
+        }
+        
+        .status-active { background: var(--success); }
+        .status-inactive { background: var(--danger); }
+        
+        .attack-log {
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            padding: 10px;
+        }
+        
+        .log-entry {
+            padding: 8px;
+            border-bottom: 1px solid #e9ecef;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .log-entry:nth-child(odd) {
+            background: #f1f3f5;
+        }
+        
+        .log-severity {
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
+        }
+        
+        .severity-low { background: #d4edda; color: #155724; }
+        .severity-medium { background: #fff3cd; color: #856404; }
+        .severity-high { background: #f8d7da; color: #721c24; }
+        .severity-critical { background: #dc3545; color: white; }
+        
+        .port-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .port-item {
+            background: var(--secondary);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        
+        .suspicious-ip {
+            background: var(--danger);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 15px;
+            margin: 3px;
+            display: inline-block;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-3px);
+        }
+        
+        .stat-value {
+            font-size: 32px;
+            font-weight: bold;
+            margin: 10px 0;
+            color: var(--primary);
+        }
+        
+        .stat-label {
+            font-size: 14px;
+            color: #6c757d;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin: 15px 0;
+        }
+        
+        .chart-title {
+            text-align: center;
+            margin-bottom: 10px;
+            color: var(--dark);
+            font-weight: 600;
+        }
+        
+        .tab-container {
+            margin-bottom: 25px;
+        }
+        
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid #dee2e6;
+            margin-bottom: 20px;
+        }
+        
+        .tab {
+            padding: 12px 24px;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
+            font-weight: 500;
+        }
+        
+        .tab:hover {
+            background: #f8f9fa;
+            border-bottom: 3px solid var(--secondary);
+        }
+        
+        .tab.active {
+            border-bottom-color: var(--secondary);
+            font-weight: bold;
+            color: var(--secondary);
+        }
+        
+        .tab-content {
+            display: none;
+            animation: fadeIn 0.5s ease;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .threat-meter {
+            height: 25px;
+            background: #e9ecef;
+            border-radius: 12px;
+            overflow: hidden;
+            margin: 15px 0;
+            position: relative;
+        }
+        
+        .threat-level {
+            height: 100%;
+            background: linear-gradient(90deg, #2ecc71, #f39c12, #e74c3c);
+            transition: width 0.5s ease;
+        }
+        
+        .threat-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 5px;
+            font-size: 12px;
+            color: #6c757d;
+        }
+        
+        .live-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--success);
+            margin-right: 5px;
+            animation: pulse 2s infinite;
+        }
+        
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        
+        .grid-3 {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 20px;
+        }
+        
+        .grid-4 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+        }
+        
+        .info-box {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .info-box h3 {
+            margin-bottom: 10px;
+            color: var(--primary);
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .last-updated {
+            text-align: right;
+            font-size: 12px;
+            color: #6c757d;
+            margin-top: 10px;
+        }
+        
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 10px 0;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            font-size: 12px;
+        }
+        
+        .legend-color {
+            width: 15px;
+            height: 15px;
+            border-radius: 3px;
+            margin-right: 5px;
+        }
+        
+        /* Responsive design */
+        @media (max-width: 1200px) {
+            .grid-4 {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+            
+            .grid-2, .grid-3, .grid-4 {
+                grid-template-columns: 1fr;
+            }
+            
+            .header {
+                flex-direction: column;
+                text-align: center;
+                gap: 15px;
+            }
+            
+            .tabs {
+                flex-wrap: wrap;
+            }
+            
+            .tab {
+                flex: 1;
+                text-align: center;
+                min-width: 120px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <h1>🚀 Dynamic Firewall with Deceptive Layer</h1>
+            <p>Real-time Threat Monitoring & AI-Powered Security Analytics</p>
+        </div>
+        <div class="controls">
+            <button class="btn btn-primary" onclick="requestUpdate()">🔄 Refresh</button>
+            <button class="btn btn-success" onclick="startTraffic()">▶️ Start Monitoring</button>
+            <button class="btn btn-danger" onclick="stopTraffic()">⏹️ Stop Monitoring</button>
+        </div>
+    </div>
+    
+    <div class="stat-grid">
+        <div class="stat-card">
+            <div class="stat-label">Total Traffic</div>
+            <div class="stat-value" id="total-traffic">0</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Attack Traffic</div>
+            <div class="stat-value" id="attack-traffic">0</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Normal Traffic</div>
+            <div class="stat-value" id="normal-traffic">0</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Firewall Blocks</div>
+            <div class="stat-value" id="firewall-blocks">0</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Honeypot Captures</div>
+            <div class="stat-value" id="honeypot-captures">0</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Suspicious IPs</div>
+            <div class="stat-value" id="suspicious-ips-count">0</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Threat Level</div>
+            <div class="stat-value" id="threat-level-value">0%</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Port Rotations</div>
+            <div class="stat-value" id="rotation-count">0</div>
+        </div>
+    </div>
+    
+    <div class="tab-container">
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('overview-tab')">📊 Overview</div>
+            <div class="tab" onclick="switchTab('firewall-tab')">🛡️ Firewall</div>
+            <div class="tab" onclick="switchTab('honeypot-tab')">🍯 Honeypot</div>
+            <div class="tab" onclick="switchTab('traffic-tab')">📈 Traffic Analysis</div>
+            <div class="tab" onclick="switchTab('threats-tab')">⚠️ Live Threats</div>
+            <div class="tab" onclick="switchTab('ml-tab')">🤖 ML Analysis</div>
+        </div>
+        
+        <!-- Overview Tab -->
+        <div id="overview-tab" class="tab-content active">
+            <div class="dashboard">
+                <div class="card">
+                    <h2>🌐 Real-time Traffic Monitoring</h2>
+                    <div class="chart-container">
+                        <canvas id="traffic-timeline-chart"></canvas>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h2>📊 Attack Type Distribution</h2>
+                    <div class="chart-container">
+                        <canvas id="attack-type-chart"></canvas>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h2>📶 Live Threat Level</h2>
+                    <div class="threat-meter">
+                        <div class="threat-level" id="threat-level-bar" style="width: 0%"></div>
+                    </div>
+                    <div class="threat-labels">
+                        <span>Low</span>
+                        <span>Medium</span>
+                        <span>High</span>
+                    </div>
+                    <div id="patterns-detected">
+                        <h3>Detected Patterns:</h3>
+                        <ul id="patterns-list"></ul>
+                    </div>
+                </div>
+                
+                <div class="card full-width">
+                    <h2>🔄 Continuous IP Shift Monitoring</h2>
+                    <div class="chart-container">
+                        <canvas id="ip-shift-chart"></canvas>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h2>🔴 Live Firewall Activity</h2>
+                    <div class="attack-log" id="firewall-log"></div>
+                </div>
+                
+                <div class="card">
+                    <h2>🟡 Live Honeypot Activity</h2>
+                    <div class="attack-log" id="honeypot-log"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Firewall Tab -->
+        <div id="firewall-tab" class="tab-content">
+            <div class="dashboard">
+                <div class="card">
+                    <h2>🛡️ Firewall Status</h2>
+                    <p><span class="status-indicator status-active"></span><strong>Status:</strong> Active</p>
+                    <p><strong>Rotation Interval:</strong> <span id="firewall-interval">30</span> seconds</p>
+                    <p><strong>Rotation Count:</strong> <span id="firewall-rotation-count">0</span></p>
+                    <p><strong>Total Attacks Blocked:</strong> <span id="firewall-total-attacks">0</span></p>
+                </div>
+                
+                <div class="card">
+                    <h2>🔓 Current Open Ports</h2>
+                    <div class="port-list" id="firewall-open-ports"></div>
+                </div>
+                
+                <div class="card full-width">
+                    <h2>📊 Port Rotation History</h2>
+                    <div class="chart-container">
+                        <canvas id="port-rotation-chart"></canvas>
+                    </div>
+                </div>
+                
+                <div class="card full-width">
+                    <h2>🌐 Suspicious IP Addresses</h2>
+                    <div id="suspicious-ips-list"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Honeypot Tab -->
+        <div id="honeypot-tab" class="tab-content">
+            <div class="dashboard">
+                <div class="card">
+                    <h2>🍯 Honeypot Statistics</h2>
+                    <p><strong>Total Attacks Captured:</strong> <span id="honeypot-total">0</span></p>
+                    <p><strong>Recent Activity:</strong> <span id="honeypot-recent">0</span> attacks</p>
+                </div>
+                
+                <div class="card">
+                    <h2>📈 Attack Frequency</h2>
+                    <div class="chart-container">
+                        <canvas id="attack-frequency-chart"></canvas>
+                    </div>
+                </div>
+                
+                <div class="card full-width">
+                    <h2>📋 Recent Honeypot Attacks</h2>
+                    <div class="attack-log" id="honeypot-detailed-log"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Traffic Analysis Tab -->
+        <div id="traffic-tab" class="tab-content">
+            <div class="dashboard">
+                <div class="card full-width">
+                    <h2>📈 Real-time Traffic Analysis</h2>
+                    <div class="chart-container">
+                        <canvas id="real-time-traffic-chart"></canvas>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h2>📊 Traffic Composition</h2>
+                    <div class="chart-container">
+                        <canvas id="traffic-composition-chart"></canvas>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h2>📡 Traffic Statistics</h2>
+                    <div class="info-box">
+                        <p><strong>Total Requests:</strong> <span id="traffic-total">0</span></p>
+                        <p><strong>Normal Traffic:</strong> <span id="traffic-normal">0</span></p>
+                        <p><strong>Attack Traffic:</strong> <span id="traffic-attack">0</span></p>
+                        <p><strong>Attack Ratio:</strong> <span id="traffic-ratio">0%</span></p>
+                    </div>
+                </div>
+                
+                <div class="card full-width">
+                    <h2>👥 Top Active IP Addresses</h2>
+                    <div class="chart-container">
+                        <canvas id="ip-activity-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Live Threats Tab -->
+        <div id="threats-tab" class="tab-content">
+            <div class="dashboard">
+                <div class="card">
+                    <h2>⚠️ Live Threat Dashboard</h2>
+                    <p><span class="live-indicator"></span><strong>Active Threats:</strong> <span id="active-threats">0</span></p>
+                    <div class="threat-meter">
+                        <div class="threat-level" id="live-threat-level" style="width: 0%"></div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h2>📊 Threat Severity Distribution</h2>
+                    <div class="chart-container">
+                        <canvas id="threat-severity-chart"></canvas>
+                    </div>
+                </div>
+                
+                <div class="card full-width">
+                    <h2>🔄 Real-time Threat Monitoring</h2>
+                    <div class="chart-container">
+                        <canvas id="live-threat-chart"></canvas>
+                    </div>
+                </div>
+                
+                <div class="card full-width">
+                    <h2>📋 Live Threat Feed</h2>
+                    <div class="attack-log" id="live-threat-log"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- ML Analysis Tab -->
+        <div id="ml-tab" class="tab-content">
+            <div class="dashboard">
+                <div class="card">
+                    <h2>🤖 ML Security Analysis</h2>
+                    <div class="threat-meter">
+                        <div class="threat-level" id="ml-threat-level" style="width: 0%"></div>
+                    </div>
+                    <p><strong>Threat Level:</strong> <span id="ml-threat-value">0</span>/100</p>
+                    <p><strong>Patterns Detected:</strong></p>
+                    <ul id="ml-patterns-list"></ul>
+                </div>
+                
+                <div class="card">
+                    <h2>📈 Threat Level History</h2>
+                    <div class="chart-container">
+                        <canvas id="threat-history-chart"></canvas>
+                    </div>
+                </div>
+                
+                <div class="card full-width">
+                    <h2>📋 Recent ML Analysis</h2>
+                    <div class="attack-log" id="ml-analysis-log"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="last-updated" id="last-updated">
+        Last updated: <span id="update-time">Never</span>
+    </div>
+
+    <script>
+        const socket = io();
+        let charts = {};
+        let lastUpdate = new Date();
+        
+        // Handle status updates from server
+        socket.on('status_update', function(data) {
+            updateDashboard(data);
+            lastUpdate = new Date();
+            document.getElementById('update-time').textContent = lastUpdate.toLocaleTimeString();
+        });
+        
+        // Handle real-time monitoring updates
+        socket.on('monitoring_update', function(data) {
+            updateMonitoringCharts(data);
+        });
+        
+        // Handle real-time firewall attack events
+        socket.on('firewall_attack', function(data) {
+            addFirewallLogEntry(data);
+        });
+        
+        // Handle real-time honeypot attack events
+        socket.on('honeypot_attack', function(data) {
+            addHoneypotLogEntry(data);
+        });
+        
+        // Handle live threat events
+        socket.on('live_threat', function(data) {
+            addLiveThreatLogEntry(data);
+        });
+        
+        // Handle ML updates
+        socket.on('ml_update', function(data) {
+            updateMLAnalysis(data);
+        });
+        
+        function updateDashboard(data) {
+            if (!data) return;
+            
+            // Update stats
+            updateStats(data);
+            
+            // Update firewall info
+            updateFirewallInfo(data.firewall);
+            
+            // Update honeypot info
+            updateHoneypotInfo(data.honeypot);
+            
+            // Update traffic info
+            updateTrafficInfo(data.traffic);
+            
+            // Update ML info
+            if (data.ml_analysis) {
+                updateMLAnalysis(data.ml_analysis);
+            }
+            
+            // Update monitoring info
+            if (data.monitoring) {
+                updateMonitoringInfo(data.monitoring);
+            }
+            
+            // Update charts
+            updateCharts(data);
+        }
+        
+        function updateStats(data) {
+            document.getElementById('total-traffic').textContent = data.traffic.total_traffic;
+            document.getElementById('attack-traffic').textContent = data.traffic.attack_traffic;
+            document.getElementById('normal-traffic').textContent = data.traffic.normal_traffic;
+            document.getElementById('firewall-blocks').textContent = data.firewall.attack_count;
+            document.getElementById('honeypot-captures').textContent = data.honeypot.total_attacks;
+            document.getElementById('suspicious-ips-count').textContent = Object.keys(data.firewall.suspicious_ips).length;
+            document.getElementById('threat-level-value').textContent = data.ml_analysis.threat_level + '%';
+            document.getElementById('rotation-count').textContent = data.firewall.rotation_count;
+        }
+        
+        function updateFirewallInfo(firewall) {
+            document.getElementById('firewall-interval').textContent = firewall.rotation_interval;
+            document.getElementById('firewall-rotation-count').textContent = firewall.rotation_count;
+            document.getElementById('firewall-total-attacks').textContent = firewall.attack_count;
+            
+            // Update open ports
+            const portsContainer = document.getElementById('firewall-open-ports');
+            portsContainer.innerHTML = '';
+            
+            firewall.open_ports.forEach(port => {
+                const portElement = document.createElement('div');
+                portElement.className = 'port-item';
+                portElement.textContent = port;
+                portsContainer.appendChild(portElement);
+            });
+            
+            // Update suspicious IPs list
+            const ipsContainer = document.getElementById('suspicious-ips-list');
+            ipsContainer.innerHTML = '';
+            
+            const topIps = Object.entries(firewall.suspicious_ips)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 10);
+                
+            topIps.forEach(([ip, count]) => {
+                const ipElement = document.createElement('span');
+                ipElement.className = 'suspicious-ip';
+                ipElement.textContent = `${ip} (${count})`;
+                ipElement.title = `${count} attack attempts from this IP`;
+                ipsContainer.appendChild(ipElement);
+            });
+        }
+        
+        function updateHoneypotInfo(honeypot) {
+            document.getElementById('honeypot-total').textContent = honeypot.total_attacks;
+            document.getElementById('honeypot-recent').textContent = honeypot.recent_attacks.length;
+            
+            // Update honeypot log
+            const honeypotLog = document.getElementById('honeypot-log');
+            const detailedLog = document.getElementById('honeypot-detailed-log');
+            honeypotLog.innerHTML = '';
+            detailedLog.innerHTML = '';
+            
+            honeypot.recent_attacks.slice().reverse().forEach(attack => {
+                addHoneypotLogEntry(attack, false);
+                
+                const logEntry = document.createElement('div');
+                logEntry.className = 'log-entry';
+                
+                const time = new Date(attack.timestamp).toLocaleTimeString();
+                const severityClass = `severity-${attack.severity?.toLowerCase() || 'medium'}`;
+                
+                logEntry.innerHTML = `
+                    <div>${time} - ${attack.ip} - ${attack.type}</div>
+                    <div class="log-severity ${severityClass}">${attack.severity || 'Medium'}</div>
+                `;
+                detailedLog.appendChild(logEntry);
+            });
+        }
+        
+        function updateTrafficInfo(traffic) {
+            document.getElementById('traffic-total').textContent = traffic.total_traffic;
+            document.getElementById('traffic-normal').textContent = traffic.normal_traffic;
+            document.getElementById('traffic-attack').textContent = traffic.attack_traffic;
+            
+            const ratio = traffic.total_traffic > 0 
+                ? Math.round((traffic.attack_traffic / traffic.total_traffic) * 100) 
+                : 0;
+            document.getElementById('traffic-ratio').textContent = `${ratio}%`;
+        }
+        
+        function updateMLAnalysis(ml) {
+            document.getElementById('threat-level-bar').style.width = `${ml.threat_level}%`;
+            document.getElementById('ml-threat-value').textContent = ml.threat_level;
+            document.getElementById('ml-threat-level').style.width = `${ml.threat_level}%`;
+            
+            // Update patterns list
+            const patternsList = document.getElementById('patterns-list');
+            const mlPatternsList = document.getElementById('ml-patterns-list');
+            patternsList.innerHTML = '';
+            mlPatternsList.innerHTML = '';
+            
+            ml.patterns_detected.forEach(pattern => {
+                const li = document.createElement('li');
+                li.textContent = pattern;
+                patternsList.appendChild(li);
+                mlPatternsList.appendChild(li.cloneNode(true));
+            });
+            
+            // Update ML analysis log
+            const mlLog = document.getElementById('ml-analysis-log');
+            mlLog.innerHTML = '';
+            
+            if (ml.history && ml.history.length > 0) {
+                ml.history.slice().reverse().forEach(entry => {
+                    const logEntry = document.createElement('div');
+                    logEntry.className = 'log-entry';
+                    logEntry.textContent = `[${new Date(entry.timestamp).toLocaleTimeString()}] Threat: ${entry.threat_level}, Patterns: ${entry.patterns.join(', ')}`;
+                    mlLog.appendChild(logEntry);
+                });
+            }
+        }
+        
+        function updateMonitoringInfo(monitoring) {
+            document.getElementById('active-threats').textContent = monitoring.live_threats.length;
+            
+            // Calculate average threat level from live threats
+            const avgThreat = monitoring.live_threats.length > 0 
+                ? Math.min(100, monitoring.live_threats.length * 15)
+                : 0;
+            document.getElementById('live-threat-level').style.width = `${avgThreat}%`;
+        }
+        
+        function updateCharts(data) {
+            // Attack type chart
+            updateAttackTypeChart(data.honeypot.attack_types);
+            
+            // Traffic timeline chart
+            updateTrafficTimelineChart(data.traffic.traffic_timeline);
+            
+            // IP shift chart
+            if (data.firewall.ip_shift_history) {
+                updateIPShiftChart(data.firewall.ip_shift_history);
+            }
+            
+            // Port rotation chart
+            if (data.firewall.port_history) {
+                updatePortRotationChart(data.firewall.port_history);
+            }
+            
+            // Threat history chart
+            if (data.ml_analysis && data.ml_analysis.threat_timeline) {
+                updateThreatHistoryChart(data.ml_analysis.threat_timeline);
+            }
+        }
+        
+        function updateMonitoringCharts(monitoring) {
+            // Real-time traffic chart
+            if (monitoring.real_time_graphs && monitoring.real_time_graphs.traffic_volume) {
+                updateRealTimeTrafficChart(monitoring.real_time_graphs.traffic_volume);
+            }
+            
+            // Live threat chart
+            if (monitoring.real_time_graphs && monitoring.real_time_graphs.threat_level) {
+                updateLiveThreatChart(monitoring.real_time_graphs.threat_level);
+            }
+            
+            // Attack frequency chart
+            if (monitoring.real_time_graphs && monitoring.real_time_graphs.attack_frequency) {
+                updateAttackFrequencyChart(monitoring.real_time_graphs.attack_frequency);
+            }
+            
+            // IP activity chart
+            if (monitoring.ip_shift_data) {
+                updateIPActivityChart(monitoring.ip_shift_data);
+            }
+            
+            // Threat severity chart
+            if (monitoring.live_threats) {
+                updateThreatSeverityChart(monitoring.live_threats);
+            }
+            
+            // Traffic composition chart
+            updateTrafficCompositionChart();
+        }
+        
+        function updateAttackTypeChart(attackTypes) {
+            const ctx = document.getElementById('attack-type-chart').getContext('2d');
+            const labels = Object.keys(attackTypes);
+            const data = Object.values(attackTypes);
+            const colors = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#34495e'];
+            
+            if (charts.attackType) {
+                charts.attackType.data.labels = labels;
+                charts.attackType.data.datasets[0].data = data;
+                charts.attackType.update();
+            } else {
+                charts.attackType = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            data: data,
+                            backgroundColor: colors,
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                position: 'bottom'
+                            },
+                            title: {
+                                display: true,
+                                text: 'Attack Type Distribution'
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        
+        function updateTrafficTimelineChart(timeline) {
+            const ctx = document.getElementById('traffic-timeline-chart').getContext('2d');
+            const labels = Object.keys(timeline);
+            const data = Object.values(timeline);
+            
+            if (charts.trafficTimeline) {
+                charts.trafficTimeline.data.labels = labels;
+                charts.trafficTimeline.data.datasets[0].data = data;
+                charts.trafficTimeline.update();
+            } else {
+                charts.trafficTimeline = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Traffic Volume',
+                            data: data,
+                            backgroundColor: 'rgba(52, 152, 219, 0.2)',
+                            borderColor: 'rgba(52, 152, 219, 1)',
+                            borderWidth: 2,
+                            tension: 0.3,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: {
+                                beginAtZero: true
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        
+        function updateIPShiftChart(ipShiftData) {
+            const ctx = document.getElementById('ip-shift-chart').getContext('2d');
+            const labels = ipShiftData.map(entry => new Date(entry.timestamp).toLocaleTimeString());
+            const ipCounts = ipShiftData.map(entry => entry.ip_count);
+            const newIPs = ipShiftData.map(entry => entry.new_ips);
+            
+            if (charts.ipShift) {
+                charts.ipShift.data.labels = labels;
+                charts.ipShift.data.datasets[0].data = ipCounts;
+                charts.ipShift.data.datasets[1].data = newIPs;
+                charts.ipShift.update();
+            } else {
+                charts.ipShift = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'Total Suspicious IPs',
+                                data: ipCounts,
+                                backgroundColor: 'rgba(231, 76, 60, 0.7)',
+                                borderColor: 'rgba(231, 76, 60, 1)',
+                                borderWidth: 1
+                            },
+                            {
+                                label: 'New IPs',
+                                data: newIPs,
+                                backgroundColor: 'rgba(46, 204, 113, 0.7)',
+                                borderColor: 'rgba(46, 204, 113, 1)',
+                                borderWidth: 1
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: {
+                                beginAtZero: true
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        
+        function updatePortRotationChart(history) {
+            const ctx = document.getElementById('port-rotation-chart').getContext('2d');
+            const labels = history.map(entry => new Date(entry.timestamp).toLocaleTimeString());
+            const ports = [...new Set(history.flatMap(entry => entry.ports))];
+            
+            const datasets = ports.map(port => {
+                return {
+                    label: `Port ${port}`,
+                    data: history.map(entry => entry.ports.includes(port) ? 1 : 0),
+                    backgroundColor: getColorForPort(port),
+                    borderColor: getColorForPort(port),
+                    borderWidth: 1,
+                    fill: false
+                };
+            });
+            
+            if (charts.portRotation) {
+                charts.portRotation.data.labels = labels;
+                charts.portRotation.data.datasets = datasets;
+                charts.portRotation.update();
+            } else {
+                charts.portRotation = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: datasets
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: {
+                                display: false
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        
+        function updateThreatHistoryChart(threatTimeline) {
+            const ctx = document.getElementById('threat-history-chart').getContext('2d');
+            const labels = Object.keys(threatTimeline);
+            const data = Object.values(threatTimeline);
+            
+            if (charts.threatHistory) {
+                charts.threatHistory.data.labels = labels;
+                charts.threatHistory.data.datasets[0].data = data;
+                charts.threatHistory.update();
+            } else {
+                charts.threatHistory = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Threat Level',
+                            data: data,
+                            backgroundColor: 'rgba(231, 76, 60, 0.2)',
+                            borderColor: 'rgba(231, 76, 60, 1)',
+                            borderWidth: 2,
+                            tension: 0.3,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                max: 100
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        
+        function updateRealTimeTrafficChart(trafficData) {
+            const ctx = document.getElementById('real-time-traffic-chart').getContext('2d');
+            const labels = trafficData.map(entry => new Date(entry.time).toLocaleTimeString());
+            const data = trafficData.map(entry => entry.value);
+            
+            if (charts.realTimeTraffic) {
+                charts.realTimeTraffic.data.labels = labels;
+                charts.realTimeTraffic.data.datasets[0].data = data;
+                charts.realTimeTraffic.update();
+            } else {
+                charts.realTimeTraffic = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Traffic Volume',
+                            data: data,
+                            backgroundColor: 'rgba(52, 152, 219, 0.2)',
+                            borderColor: 'rgba(52, 152, 219, 1)',
+                            borderWidth: 2,
+                            tension: 0.4,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        animation: {
+                            duration: 0
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        
+        function updateLiveThreatChart(threatData) {
+            const ctx = document.getElementById('live-threat-chart').getContext('2d');
+            const labels = threatData.map(entry => new Date(entry.time).toLocaleTimeString());
+            const data = threatData.map(entry => entry.value);
+            
+            if (charts.liveThreat) {
+                charts.liveThreat.data.labels = labels;
+                charts.liveThreat.data.datasets[0].data = data;
+                charts.liveThreat.update();
+            } else {
+                charts.liveThreat = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Threat Level',
+                            data: data,
+                            backgroundColor: 'rgba(231, 76, 60, 0.2)',
+                            borderColor: 'rgba(231, 76, 60, 1)',
+                            borderWidth: 2,
+                            tension: 0.4,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        animation: {
+                            duration: 0
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                max: 100
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        
+        function updateAttackFrequencyChart(attackData) {
+            const ctx = document.getElementById('attack-frequency-chart').getContext('2d');
+            const labels = attackData.map(entry => new Date(entry.time).toLocaleTimeString());
+            const data = attackData.map(entry => entry.value);
+            
+            if (charts.attackFrequency) {
+                charts.attackFrequency.data.labels = labels;
+                charts.attackFrequency.data.datasets[0].data = data;
+                charts.attackFrequency.update();
+            } else {
+                charts.attackFrequency = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Attack Frequency',
+                            data: data,
+                            backgroundColor: 'rgba(231, 76, 60, 0.7)',
+                            borderColor: 'rgba(231, 76, 60, 1)',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        animation: {
+                            duration: 0
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        
+        function updateIPActivityChart(ipData) {
+            const ctx = document.getElementById('ip-activity-chart').getContext('2d');
+            const labels = ipData.map(entry => new Date(entry.timestamp).toLocaleTimeString());
+            const ipCounts = ipData.map(entry => entry.ip_count);
+            const newIPs = ipData.map(entry => entry.new_ips);
+            
+            if (charts.ipActivity) {
+                charts.ipActivity.data.labels = labels;
+                charts.ipActivity.data.datasets[0].data = ipCounts;
+                charts.ipActivity.data.datasets[1].data = newIPs;
+                charts.ipActivity.update();
+            } else {
+                charts.ipActivity = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'Total Suspicious IPs',
+                                data: ipCounts,
+                                backgroundColor: 'rgba(231, 76, 60, 0.2)',
+                                borderColor: 'rgba(231, 76, 60, 1)',
+                                borderWidth: 2,
+                                tension: 0.3,
+                                fill: true
+                            },
+                            {
+                                label: 'New IPs',
+                                data: newIPs,
+                                backgroundColor: 'rgba(46, 204, 113, 0.2)',
+                                borderColor: 'rgba(46, 204, 113, 1)',
+                                borderWidth: 2,
+                                tension: 0.3,
+                                fill: true
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: {
+                                beginAtZero: true
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        
+        function updateThreatSeverityChart(liveThreats) {
+            const ctx = document.getElementById('threat-severity-chart').getContext('2d');
+            
+            // Count threats by severity
+            const severityCount = {
+                'Low': 0,
+                'Medium': 0,
+                'High': 0,
+                'Critical': 0
+            };
+            
+            liveThreats.forEach(threat => {
+                const severity = threat.severity || 'Medium';
+                if (severityCount[severity] !== undefined) {
+                    severityCount[severity]++;
+                }
+            });
+            
+            const labels = Object.keys(severityCount);
+            const data = Object.values(severityCount);
+            const colors = ['#2ecc71', '#f39c12', '#e74c3c', '#8b0000'];
+            
+            if (charts.threatSeverity) {
+                charts.threatSeverity.data.labels = labels;
+                charts.threatSeverity.data.datasets[0].data = data;
+                charts.threatSeverity.data.datasets[0].backgroundColor = colors;
+                charts.threatSeverity.update();
+            } else {
+                charts.threatSeverity = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            data: data,
+                            backgroundColor: colors,
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                position: 'bottom'
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        
+        function updateTrafficCompositionChart() {
+            const ctx = document.getElementById('traffic-composition-chart').getContext('2d');
+            const normal = parseInt(document.getElementById('normal-traffic').textContent);
+            const attack = parseInt(document.getElementById('attack-traffic').textContent);
+            
+            if (charts.trafficComposition) {
+                charts.trafficComposition.data.datasets[0].data = [normal, attack];
+                charts.trafficComposition.update();
+            } else {
+                charts.trafficComposition = new Chart(ctx, {
+                    type: 'pie',
+                    data: {
+                        labels: ['Normal Traffic', 'Attack Traffic'],
+                        datasets: [{
+                            data: [normal, attack],
+                            backgroundColor: ['#2ecc71', '#e74c3c'],
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                position: 'bottom'
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        
+        function getColorForPort(port) {
+            const colors = [
+                'rgba(231, 76, 60, 0.8)',    // Red
+                'rgba(52, 152, 219, 0.8)',   // Blue
+                'rgba(46, 204, 113, 0.8)',   // Green
+                'rgba(155, 89, 182, 0.8)',   // Purple
+                'rgba(241, 196, 15, 0.8)',   // Yellow
+                'rgba(230, 126, 34, 0.8)',   // Orange
+                'rgba(149, 165, 166, 0.8)',  // Gray
+                'rgba(26, 188, 156, 0.8)'    // Turquoise
+            ];
+            return colors[port % colors.length];
+        }
+        
+        function addFirewallLogEntry(attack, prepend = true) {
+            const firewallLog = document.getElementById('firewall-log');
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-entry';
+            
+            const time = new Date(attack.timestamp).toLocaleTimeString();
+            const severityClass = `severity-${attack.severity?.toLowerCase() || 'medium'}`;
+            
+            logEntry.innerHTML = `
+                <div>${time} - ${attack.ip} - ${attack.type}</div>
+                <div class="log-severity ${severityClass}">${attack.severity || 'Medium'}</div>
+            `;
+            
+            if (prepend) {
+                firewallLog.insertBefore(logEntry, firewallLog.firstChild);
+            } else {
+                firewallLog.appendChild(logEntry);
+            }
+            
+            // Keep only the last 10 entries
+            while (firewallLog.children.length > 10) {
+                firewallLog.removeChild(firewallLog.lastChild);
+            }
+        }
+        
+        function addHoneypotLogEntry(attack, prepend = true) {
+            const honeypotLog = document.getElementById('honeypot-log');
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-entry';
+            
+            const time = new Date(attack.timestamp).toLocaleTimeString();
+            const severityClass = `severity-${attack.severity?.toLowerCase() || 'medium'}`;
+            
+            logEntry.innerHTML = `
+                <div>${time} - ${attack.ip} - ${attack.type}</div>
+                <div class="log-severity ${severityClass}">${attack.severity || 'Medium'}</div>
+            `;
+            
+            if (prepend) {
+                honeypotLog.insertBefore(logEntry, honeypotLog.firstChild);
+            } else {
+                honeypotLog.appendChild(logEntry);
+            }
+            
+            // Keep only the last 10 entries
+            while (honeypotLog.children.length > 10) {
+                honeypotLog.removeChild(honeypotLog.lastChild);
+            }
+        }
+        
+        function addLiveThreatLogEntry(threat) {
+            const threatLog = document.getElementById('live-threat-log');
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-entry';
+            
+            const time = new Date(threat.timestamp).toLocaleTimeString();
+            const severityClass = `severity-${threat.severity?.toLowerCase() || 'medium'}`;
+            
+            logEntry.innerHTML = `
+                <div>${time} - ${threat.ip} - ${threat.type}</div>
+                <div class="log-severity ${severityClass}">${threat.severity || 'Medium'}</div>
+            `;
+            
+            threatLog.insertBefore(logEntry, threatLog.firstChild);
+            
+            // Keep only the last 15 entries
+            while (threatLog.children.length > 15) {
+                threatLog.removeChild(threatLog.lastChild);
+            }
+        }
+        
+        function switchTab(tabId) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Deactivate all tab buttons
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Activate selected tab
+            document.getElementById(tabId).classList.add('active');
+            
+            // Activate tab button
+            document.querySelector(`.tab[onclick="switchTab('${tabId}')"]`).classList.add('active');
+            
+            // Refresh charts for the active tab
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => updateDashboard(data));
+        }
+        
+        function requestUpdate() {
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => updateDashboard(data));
+        }
+        
+        function startTraffic() {
+            fetch('/api/traffic/start', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Traffic started:', data);
+            });
+        }
+        
+        function stopTraffic() {
+            fetch('/api/traffic/stop', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Traffic stopped:', data);
+            });
+        }
+        
+        // Initial data fetch
+        fetch('/api/status')
+            .then(response => response.json())
+            .then(data => updateDashboard(data));
+            
+        // Auto-refresh every 5 seconds
+        setInterval(() => {
+            requestUpdate();
+        }, 5000);
+    </script>
+</body>
+</html>
